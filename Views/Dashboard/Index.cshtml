@@ -1,0 +1,387 @@
+﻿@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<!-- ✅ LOADER -->
+<div id="loader">
+    <div class="spinner"></div>
+</div>
+
+<div class="header">
+    <h2 class="dashboard-title">
+        E-Commerce Sales Analysis & Forecasting Dashboard
+    </h2>
+</div>
+
+<!-- UPLOAD -->
+<div class="text-center mt-4">
+    <input type="file" id="csvFile" class="form-control w-25 d-inline" />
+    <button class="btn btn-primary" onclick="uploadCSV()">Upload CSV</button>
+    <p id="uploadStatus" class="mt-2 text-danger"></p>
+</div>
+
+<!-- MESSAGE -->
+<div id="noDataMessage" class="text-center mt-4">
+    <h4>📂 No Data Available</h4>
+    <p>Please upload CSV file to view dashboard</p>
+</div>
+
+<!-- DASHBOARD -->
+<div class="mt-4 main-container">
+
+    <div class="text-center mb-3">
+        <select id="regionFilter" class="form-select d-inline w-auto"></select>
+        <select id="categoryFilter" class="form-select d-inline w-auto"></select>
+    </div>
+
+    <!-- CARDS -->
+    <div class="row text-center mb-4">
+        <div class="col-md-3"><div class="card p-3 shadow"><h5>Total Revenue</h5><h3 id="revenue">0</h3></div></div>
+        <div class="col-md-3"><div class="card p-3 shadow"><h5>Total Orders</h5><h3 id="orders">0</h3></div></div>
+        <div class="col-md-3"><div class="card p-3 shadow"><h5>Top Region</h5><h3 id="topRegion">-</h3></div></div>
+        <div class="col-md-3"><div class="card p-3 shadow"><h5>Top Category</h5><h3 id="topCategory">-</h3></div></div>
+    </div>
+
+    <!-- CHARTS -->
+    <div class="row">
+        <div class="col-md-4"><div class="chart-box"><canvas id="regionChart"></canvas></div></div>
+        <div class="col-md-4"><div class="chart-box"><canvas id="monthlyChart"></canvas></div></div>
+        <div class="col-md-4"><div class="chart-box"><canvas id="categoryChart"></canvas></div></div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-8"><div class="chart-box big-chart"><canvas id="forecastChart"></canvas></div></div>
+        <div class="col-md-4"><div class="chart-box"><div id="heatmapContainer"></div></div></div>
+    </div>
+
+</div>
+
+<style>
+    body {
+        background: #f5f6fa;
+        font-family: 'Segoe UI';
+    }
+
+    /* LOADER */
+    #loader {
+        position: fixed;
+        width: 100%;
+        height: 100%;
+        background: rgba(255,255,255,0.7);
+        top: 0;
+        left: 0;
+        z-index: 9999;
+        display: none;
+        backdrop-filter: blur(3px);
+    }
+
+    .spinner {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 60px;
+        height: 60px;
+        border: 6px solid #eee;
+        border-top: 6px solid #4e79a7;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        transform: translate(-50%, -50%);
+    }
+
+    @@keyframes spin {
+        100% {
+            transform: rotate(360deg) translate(-50%, -50%);
+        }
+    }
+
+    .header {
+        background: linear-gradient(to right, #6B3E26, #D2A679);
+        padding: 15px;
+        text-align: center;
+    }
+
+    .dashboard-title {
+        color: white;
+    }
+
+    .chart-box {
+        background: #fff;
+        padding: 15px;
+        border-radius: 16px;
+        height: 280px;
+    }
+
+    .big-chart {
+        height: 350px;
+    }
+
+    .main-container {
+        display: none;
+    }
+
+</style>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+
+    let regionChart, monthlyChart, categoryChart, forecastChart;
+
+    // ============================
+    // ✅ LOADER (IMPROVED)
+    // ============================
+    function showLoader() {
+    $("#loader").stop(true,true).fadeIn(200);
+    }
+    function hideLoader() {
+    $("#loader").stop(true,true).fadeOut(200);
+    }
+
+    // ============================
+    // ✅ SAFE FETCH (NEW)
+    // ============================
+    async function safeFetch(url){
+    try{
+    let res = await fetch(url);
+    if(!res.ok) return [];
+    return await res.json();
+    }catch{
+    return [];
+    }
+    }
+
+    // ============================
+    // ✅ UPLOAD
+    // ============================
+    async function uploadCSV(){
+
+    showLoader();   // 🔥 START
+
+    await new Promise(r => setTimeout(r, 500));
+
+    try{
+    const file = document.getElementById("csvFile").files[0];
+    if (!file){
+    alert("Select file first");
+    hideLoader();
+    return;
+    }
+
+    let formData = new FormData();
+    formData.append("file", file);
+
+    let res = await fetch('/api/sales/upload',{
+    method:'POST',
+    body:formData
+    });
+
+    let msg = await res.text();
+    document.getElementById("uploadStatus").innerText = msg;
+
+    document.getElementById("noDataMessage").style.display = "none";
+    document.querySelector(".main-container").style.display = "block";
+
+    await loadFilters();
+    await loadData();
+
+    }catch(e){
+    console.error(e);
+    }
+    finally{
+    hideLoader();   // 🔥 END
+    }
+    }
+
+    // ============================
+    // ✅ FILTERS
+    // ============================
+    async function loadFilters(){
+
+    const r = await safeFetch('/api/sales/region');
+    const c = await safeFetch('/api/sales/category');
+
+    regionFilter.innerHTML='<option value="">All Regions</option>';
+    categoryFilter.innerHTML='<option value="">All Categories</option>';
+
+    r.forEach(x=>{
+    regionFilter.innerHTML+=`<option value="${x.region}">${x.region}</option>`;
+    });
+
+    c.forEach(x=>{
+    categoryFilter.innerHTML+=`<option value="${x.category}">${x.category}</option>`;
+    });
+    }
+
+    // ============================
+    // ✅ LOAD DATA (FULL FIXED)
+    // ============================
+    async function loadData(){
+
+    showLoader();
+
+    try{
+
+    const region = regionFilter.value;
+    const category = categoryFilter.value;
+    const q = `?region=${region}&category=${category}`;
+
+    const r = await safeFetch('/api/sales/region'+q);
+    const m = await safeFetch('/api/sales/monthly'+q);
+    const c = await safeFetch('/api/sales/category'+q);
+    const orders = await safeFetch('/api/sales/orders'+q);
+
+    // =====================
+    // ✅ CARDS SAFE
+    // =====================
+    document.getElementById("orders").innerText = orders || 0;
+
+    document.getElementById("revenue").innerText =
+    m.length ? m.reduce((s,x)=>s+x.total,0).toLocaleString() : 0;
+
+    document.getElementById("topRegion").innerText =
+    r.length ? r.sort((a,b)=>b.total-a.total)[0].region : "-";
+
+    document.getElementById("topCategory").innerText =
+    c.length ? c.sort((a,b)=>b.total-a.total)[0].category : "-";
+
+    // =====================
+    // ✅ CHARTS SAFE
+    // =====================
+
+    // REGION
+    if(regionChart) regionChart.destroy();
+    regionChart = new Chart(document.getElementById('regionChart'),{
+    type:'bar',
+    data:{
+    labels:r.map(x=>x.region),
+    datasets:[{
+    label:"Sales",
+    data:r.map(x=>x.total),
+    backgroundColor:'#5B8FF9'
+    }]
+    }
+    });
+
+    // MONTHLY
+    if(monthlyChart) monthlyChart.destroy();
+    monthlyChart = new Chart(document.getElementById('monthlyChart'),{
+    type:'line',
+    data:{
+    labels:m.map(x=>"M"+x.month),
+    datasets:[{
+    label:"Monthly Sales",
+    data:m.map(x=>x.total),
+    borderColor:'#FF8C00',
+    fill:true
+    }]
+    }
+    });
+
+    // CATEGORY
+    if(categoryChart) categoryChart.destroy();
+    categoryChart = new Chart(document.getElementById('categoryChart'),{
+    type:'pie',
+    data:{
+    labels:c.map(x=>x.category),
+    datasets:[{
+    data:c.map(x=>x.total),
+    backgroundColor:['#5B8FF9','#FF8C00','#FF4D4F']
+    }]
+    }
+    });
+
+    // =====================
+    // ✅ FORECAST SAFE
+    // =====================
+    let f = m.length ? [...m.map(x=>x.total)] : [0];
+
+    for(let i=0;i<3;i++){
+    f.push(f.at(-1)*1.1);
+    }
+
+    if(forecastChart) forecastChart.destroy();
+    forecastChart = new Chart(document.getElementById('forecastChart'),{
+    type:'line',
+    data:{
+    labels:[...m.map(x=>"M"+x.month),"F1","F2","F3"],
+    datasets:[{
+    label:"Forecast",
+    data:f,
+    borderColor:'red',
+    fill:true
+    }]
+    }
+    });
+
+    // =====================
+    // ✅ HEATMAP
+    // =====================
+    await renderHeatmap();
+
+    }
+    catch(err){
+    console.error(err);
+    }
+    finally{
+    hideLoader();
+    }
+    }
+
+    // ============================
+    // ✅ HEATMAP FIXED
+    // ============================
+    async function renderHeatmap(){
+
+    const q=`?region=${regionFilter.value}&category=${categoryFilter.value}`;
+    const json = await safeFetch('/api/sales/heatmap'+q);
+
+    const container=document.getElementById("heatmapContainer");
+    container.innerHTML="";
+
+    if(!json.matrix) return;
+
+    json.matrix.forEach(r=>{
+    let row=document.createElement("div");
+    row.style.display="flex";
+
+    r.forEach(v=>{
+    let cell=document.createElement("div");
+    cell.style.flex=1;
+    cell.style.padding="10px";
+    cell.style.margin="3px";
+    cell.style.borderRadius="8px";
+    cell.style.background="#f59e0b";
+    cell.style.textAlign="center";
+    cell.innerText=v;
+
+    row.appendChild(cell);
+    });
+
+    container.appendChild(row);
+    });
+    }
+
+    // ============================
+    // ✅ EVENTS
+    // ============================
+    regionFilter.onchange = loadData;
+    categoryFilter.onchange = loadData;
+
+    // ============================
+    // ✅ INIT
+    // ============================
+    window.onload = async () => {
+
+    showLoader();   // 🔥 START
+
+    await new Promise(r => setTimeout(r, 500)); // force visible
+
+    document.getElementById("noDataMessage").style.display = "block";
+
+    hideLoader();   // 🔥 END
+    };
+
+</script>
