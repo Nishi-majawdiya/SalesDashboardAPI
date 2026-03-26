@@ -1,36 +1,52 @@
-name: Deploy ASP.NET Core to IIS
+name: .NET CI/CD
 
 on:
   push:
     branches:
-      - main
+      - main   # ⚠️ tumhara branch main hai
 
 jobs:
-  build:
-    runs-on: [self-hosted, windows]
+  build-and-deploy:
+    runs-on: self-hosted
 
     steps:
-    
-    - name: Checkout Code
+
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '8.0.x'
-
-    - name: Restore
+    - name: Restore dependencies
       run: dotnet restore
 
-    - name: Build
-      run: dotnet build --configuration Release
+    - name: Build project
+      run: dotnet build --configuration Release --no-restore
 
-    - name: Publish
+    - name: Publish project
       run: dotnet publish -c Release -o publish
 
-    - name: Deploy to IIS
+    # ✅ Enable maintenance mode (locks IIS safely)
+    - name: Enable app_offline
+      shell: powershell
       run: |
-        xcopy /E /I /Y publish\* C:\inetpub\wwwroot\SalesDashboardAPI\
+        if (!(Test-Path "C:\inetpub\wwwroot\SalesDashboardAPI")) {
+            New-Item -ItemType Directory -Path "C:\inetpub\wwwroot\SalesDashboardAPI"
+        }
+        New-Item "C:\inetpub\wwwroot\SalesDashboardAPI\app_offline.htm" -ItemType File -Force
 
-    - name: Restart IIS
-      run: iisreset
+    # ✅ Clean folder safely
+    - name: Clean IIS Folder
+      shell: powershell
+      run: |
+        Get-ChildItem "C:\inetpub\wwwroot\SalesDashboardAPI" -Recurse -Exclude "app_offline.htm" | 
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+    # ✅ Copy new build
+    - name: Copy Files to IIS
+      shell: powershell
+      run: |
+        Copy-Item -Path "publish\*" -Destination "C:\inetpub\wwwroot\SalesDashboardAPI" -Recurse -Force
+
+    # ✅ Disable maintenance mode
+    - name: Disable app_offline
+      shell: powershell
+      run: |
+        Remove-Item "C:\inetpub\wwwroot\SalesDashboardAPI\app_offline.htm" -Force
