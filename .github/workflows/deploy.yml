@@ -3,7 +3,7 @@ name: .NET CI/CD
 on:
   push:
     branches:
-      - main   # ⚠️ tumhara branch main hai
+      - main
 
 jobs:
   build-and-deploy:
@@ -11,28 +11,23 @@ jobs:
 
     steps:
 
-    # Checkout
+    # Checkout code
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # Restore
+    # Restore dependencies
     - name: Restore dependencies
       run: dotnet restore
 
-    # Build
+    # Build project
     - name: Build project
       run: dotnet build --configuration Release --no-restore
 
-    # Publish
+    # Publish project
     - name: Publish project
       run: dotnet publish -c Release -o publish
 
-    # Stop IIS (IMPORTANT)
-    - name: Stop IIS
-      shell: powershell
-      run: iisreset /stop
-
-    # Ensure folder exists
+    # Ensure IIS folder exists
     - name: Ensure IIS Folder Exists
       shell: powershell
       run: |
@@ -40,7 +35,7 @@ jobs:
             New-Item -ItemType Directory -Path "C:\inetpub\wwwroot\SalesDashboardAPI"
         }
 
-    # Clean folder
+    # Clean IIS folder
     - name: Clean IIS Folder
       shell: powershell
       run: |
@@ -48,22 +43,18 @@ jobs:
             Get-ChildItem "C:\inetpub\wwwroot\SalesDashboardAPI" -Recurse | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
         }
 
-    # Copy files
+    # Copy files to IIS
     - name: Copy Files to IIS
       shell: powershell
       run: |
         Copy-Item -Path "publish\*" -Destination "C:\inetpub\wwwroot\SalesDashboardAPI" -Recurse -Force
 
-    # Start IIS
-    - name: Start IIS Site
+    # Restart IIS Site (NO ADMIN NEEDED)
+    - name: Restart IIS Site
       shell: powershell
       run: |
         Import-Module WebAdministration
         if (Get-Website -Name "SalesDashboardAPI" -ErrorAction SilentlyContinue) {
+            Stop-WebSite -Name "SalesDashboardAPI"
             Start-WebSite -Name "SalesDashboardAPI"
         }
-
-    # Final restart (optional but safe)
-    - name: Restart IIS
-      shell: powershell
-      run: iisreset /start
