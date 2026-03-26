@@ -1,37 +1,69 @@
-name: Deploy ASP.NET Core to IIS
+name: .NET CI/CD
 
 on:
   push:
     branches:
-      - main
+      - main   # ⚠️ tumhara branch main hai
 
 jobs:
-  build:
-    runs-on: [self-hosted, windows]
+  build-and-deploy:
+    runs-on: self-hosted
 
     steps:
 
-    - name: Checkout Code
+    # Checkout
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '8.0.x'
-        installation-path: C:\actions-runner\dotnet
-
-    - name: Restore
+    # Restore
+    - name: Restore dependencies
       run: dotnet restore
 
-    - name: Build
-      run: dotnet build --configuration Release
+    # Build
+    - name: Build project
+      run: dotnet build --configuration Release --no-restore
 
-    - name: Publish
+    # Publish
+    - name: Publish project
       run: dotnet publish -c Release -o publish
 
-    - name: Deploy to IIS
-      run: |
-        xcopy /E /I /Y publish\* C:\inetpub\wwwroot\SalesDashboardAPI\
+    # Stop IIS (IMPORTANT)
+    - name: Stop IIS
+      shell: powershell
+      run: iisreset /stop
 
+    # Ensure folder exists
+    - name: Ensure IIS Folder Exists
+      shell: powershell
+      run: |
+        if (!(Test-Path "C:\inetpub\wwwroot\SalesDashboardAPI")) {
+            New-Item -ItemType Directory -Path "C:\inetpub\wwwroot\SalesDashboardAPI"
+        }
+
+    # Clean folder
+    - name: Clean IIS Folder
+      shell: powershell
+      run: |
+        if (Test-Path "C:\inetpub\wwwroot\SalesDashboardAPI") {
+            Get-ChildItem "C:\inetpub\wwwroot\SalesDashboardAPI" -Recurse | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+        }
+
+    # Copy files
+    - name: Copy Files to IIS
+      shell: powershell
+      run: |
+        Copy-Item -Path "publish\*" -Destination "C:\inetpub\wwwroot\SalesDashboardAPI" -Recurse -Force
+
+    # Start IIS
+    - name: Start IIS Site
+      shell: powershell
+      run: |
+        Import-Module WebAdministration
+        if (Get-Website -Name "SalesDashboardAPI" -ErrorAction SilentlyContinue) {
+            Start-WebSite -Name "SalesDashboardAPI"
+        }
+
+    # Final restart (optional but safe)
     - name: Restart IIS
-      run: iisreset
+      shell: powershell
+      run: iisreset /start
