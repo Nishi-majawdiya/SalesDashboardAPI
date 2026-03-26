@@ -3,7 +3,7 @@ name: .NET CI/CD
 on:
   push:
     branches:
-      - main
+      - main   # ⚠️ tumhara branch main hai
 
 jobs:
   build-and-deploy:
@@ -11,50 +11,42 @@ jobs:
 
     steps:
 
-    # Checkout code
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # Restore dependencies
     - name: Restore dependencies
       run: dotnet restore
 
-    # Build project
     - name: Build project
       run: dotnet build --configuration Release --no-restore
 
-    # Publish project
     - name: Publish project
       run: dotnet publish -c Release -o publish
 
-    # Ensure IIS folder exists
-    - name: Ensure IIS Folder Exists
+    # ✅ Enable maintenance mode (locks IIS safely)
+    - name: Enable app_offline
       shell: powershell
       run: |
         if (!(Test-Path "C:\inetpub\wwwroot\SalesDashboardAPI")) {
             New-Item -ItemType Directory -Path "C:\inetpub\wwwroot\SalesDashboardAPI"
         }
+        New-Item "C:\inetpub\wwwroot\SalesDashboardAPI\app_offline.htm" -ItemType File -Force
 
-    # Clean IIS folder
+    # ✅ Clean folder safely
     - name: Clean IIS Folder
       shell: powershell
       run: |
-        if (Test-Path "C:\inetpub\wwwroot\SalesDashboardAPI") {
-            Get-ChildItem "C:\inetpub\wwwroot\SalesDashboardAPI" -Recurse | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
-        }
+        Get-ChildItem "C:\inetpub\wwwroot\SalesDashboardAPI" -Recurse -Exclude "app_offline.htm" | 
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
-    # Copy files to IIS
+    # ✅ Copy new build
     - name: Copy Files to IIS
       shell: powershell
       run: |
         Copy-Item -Path "publish\*" -Destination "C:\inetpub\wwwroot\SalesDashboardAPI" -Recurse -Force
 
-    # Restart IIS Site (NO ADMIN NEEDED)
-    - name: Restart IIS Site
+    # ✅ Disable maintenance mode
+    - name: Disable app_offline
       shell: powershell
       run: |
-        Import-Module WebAdministration
-        if (Get-Website -Name "SalesDashboardAPI" -ErrorAction SilentlyContinue) {
-            Stop-WebSite -Name "SalesDashboardAPI"
-            Start-WebSite -Name "SalesDashboardAPI"
-        }
+        Remove-Item "C:\inetpub\wwwroot\SalesDashboardAPI\app_offline.htm" -Force
